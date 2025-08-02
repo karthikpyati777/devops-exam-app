@@ -11,7 +11,7 @@ services:
       - FLASK_ENV=production
       - MYSQL_HOST=mysql
       - MYSQL_USER=root
-      - MYSQL_PASSWORD=rootpass
+      - MYSQL_PASSWORD=1ki17cs026
       - MYSQL_DATABASE=devops_exam
     depends_on:
       mysql:
@@ -24,7 +24,7 @@ services:
     image: mysql:5.7
     container_name: mysql_db
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_ROOT_PASSWORD: 1ki17cs026
       MYSQL_DATABASE: devops_exam
     ports:
       - "3306:3306"
