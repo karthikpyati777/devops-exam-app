@@ -7,19 +7,34 @@ pipeline {
     }
 
     stages {
+
+        /* ========================
+           GIT CHECKOUT
+        ======================== */
         stage('Git Checkout') {
             steps {
-                git url: 'https://github.com/karthikpyati777/devops-exam-app.git', 
+                git url: 'https://github.com/karthikpyati777/devops-exam-app.git',
                     branch: 'master'
             }
         }
 
-        stage('File System Scan') {
+        /* ========================
+           TRIVY FILE SYSTEM SCAN
+        ======================== */
+        stage('Trivy FS Scan') {
             steps {
-                sh "trivy fs --security-checks vuln,config --format table -o trivy-fs-report.html ."
+                sh '''
+                trivy fs \
+                  --scanners vuln,misconfig \
+                  --format table \
+                  -o trivy-fs-report.html .
+                '''
             }
         }
 
+        /* ========================
+           SONARQUBE ANALYSIS
+        ======================== */
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar') {
@@ -30,106 +45,120 @@ pipeline {
                     -Dsonar.sources=. \
                     -Dsonar.language=py \
                     -Dsonar.python.version=3 \
+                    -Dsonar.exclusions=trivy-fs-report.html \
                     -Dsonar.host.url=http://localhost:9000
                     """
                 }
             }
         }
 
+        /* ========================
+           VERIFY DOCKER COMPOSE
+        ======================== */
         stage('Verify Docker Compose') {
             steps {
                 sh '''
-                docker compose version || { echo "Docker Compose not available"; exit 1; }
+                docker compose version || {
+                    echo "Docker Compose not available"
+                    exit 1
+                }
                 '''
             }
         }
 
-       stage('Build Docker Image') {
-    steps {
-        dir('backend') {
-            script {
-                withDockerRegistry(credentialsId: 'docker') {
+        /* ========================
+           BUILD DOCKER IMAGE
+        ======================== */
+        stage('Build Docker Image') {
+            steps {
+                dir('backend') {
                     sh '''
-                        docker version
-                        docker build -t ${DOCKER_IMAGE} .
-                        docker push ${DOCKER_IMAGE}
+                    docker build -t ${DOCKER_IMAGE} .
                     '''
                 }
             }
         }
-    }
-}
 
-
-        // Added Docker Scout Image Analysis
-        stage('Docker Scout Image Analysis') {
+        /* ========================
+           DOCKER PUSH (SEPARATE STAGE)
+        ======================== */
+        stage('Docker Push') {
             steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker') {
-                        sh "docker-scout quickview ${DOCKER_IMAGE}"
-                        sh "docker-scout cves ${DOCKER_IMAGE}"
-                        sh "docker-scout recommendations ${DOCKER_IMAGE}"
-                    }
+                withDockerRegistry(credentialsId: 'docker') {
+                    sh '''
+                    docker push ${DOCKER_IMAGE}
+                    '''
                 }
             }
         }
 
+        /* ========================
+           DOCKER SCOUT SCAN
+        ======================== */
+        stage('Docker Scout Image Analysis') {
+            steps {
+                withDockerRegistry(credentialsId: 'docker') {
+                    sh '''
+                    docker scout quickview ${DOCKER_IMAGE}
+                    docker scout cves ${DOCKER_IMAGE}
+                    docker scout recommendations ${DOCKER_IMAGE}
+                    '''
+                }
+            }
+        }
+
+        /* ========================
+           DEPLOY USING DOCKER COMPOSE
+        ======================== */
         stage('Deploy with Docker Compose') {
             steps {
                 sh '''
-                # Clean up any existing containers
                 docker compose down --remove-orphans || true
-                
-                # Start services with build
                 docker compose up -d --build
-                
-                # Wait for MySQL to be ready
-                echo "Waiting for MySQL to be ready..."
+
+                echo "Waiting for MySQL..."
                 timeout 120s bash -c '
-                while ! docker compose exec -T mysql mysqladmin ping -uroot -prootpass --silent;
-                do 
-                    sleep 5;
-                    docker compose logs mysql --tail=5 || true;
+                until docker compose exec -T mysql \
+                  mysqladmin ping -uroot -prootpass --silent;
+                do
+                    sleep 5
                 done'
-                
-                # Additional wait for full initialization
-                sleep 10
                 '''
             }
         }
 
+        /* ========================
+           VERIFY DEPLOYMENT
+        ======================== */
         stage('Verify Deployment') {
             steps {
                 sh '''
-                echo "=== Container Status ==="
-                docker compose ps -a
-                echo "=== Testing Flask Endpoint ==="
+                echo "Containers:"
+                docker compose ps
+
+                echo "Testing Flask API..."
                 curl -I http://localhost:5000 || true
                 '''
             }
         }
     }
 
+    /* ========================
+       POST ACTIONS
+    ======================== */
     post {
         success {
-            echo '🚀 Deployment successful!'
-            sh 'docker compose ps'
+            echo '🚀 Pipeline completed successfully!'
             archiveArtifacts artifacts: 'trivy-fs-report.html', allowEmptyArchive: true
         }
+
         failure {
-            echo '❗ Pipeline failed. Check logs above.'
-            sh '''
-            echo "=== Error Investigation ==="
-            docker compose logs --tail=50 || true
-            '''
+            echo '❌ Pipeline failed. Collecting logs...'
+            sh 'docker compose logs --tail=50 || true'
         }
+
         always {
-            sh '''
-            echo "=== Final Logs ==="
-            docker compose logs --tail=20 || true
-            '''
-            archiveArtifacts artifacts: 'trivy-fs-report.html', allowEmptyArchive: true
+            sh 'docker compose ps || true'
         }
     }
-
 }
