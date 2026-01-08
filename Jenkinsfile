@@ -44,19 +44,22 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                dir('backend') {
-                    script {
-                        withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                            sh "docker build -t ${DOCKER_IMAGE} ."
-                            // Push the image to Docker Hub if needed
-                            sh "docker push ${DOCKER_IMAGE}"
-                        }
-                    }
+       stage('Build Docker Image') {
+    steps {
+        dir('backend') {
+            script {
+                withDockerRegistry(credentialsId: 'docker') {
+                    sh '''
+                        docker version
+                        docker build -t ${DOCKER_IMAGE} .
+                        docker push ${DOCKER_IMAGE}
+                    '''
                 }
             }
         }
+    }
+}
+
 
         // Added Docker Scout Image Analysis
         stage('Docker Scout Image Analysis') {
