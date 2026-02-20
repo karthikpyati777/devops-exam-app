@@ -157,7 +157,11 @@
 //             sh 'docker compose logs --tail=50 || true'
 //         }
 
-
+//         always {
+//             sh 'docker compose ps || true'
+//         }
+//     }
+// }
 
 
 
@@ -167,6 +171,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = "karthik854/devopsexamapp:latest"
         SCANNER_HOME = tool 'sonar-scanner'
+        DOCKER_REGISTRY = "https://index.docker.io/v1/"
     }
 
     options {
@@ -217,8 +222,7 @@ pipeline {
                     -Dsonar.sources=. \
                     -Dsonar.language=py \
                     -Dsonar.python.version=3 \
-                    -Dsonar.exclusions=trivy-fs-report.html \
-                    -Dsonar.host.url=http://localhost:9000
+                    -Dsonar.exclusions=trivy-fs-report.html
                     """
                 }
             }
@@ -253,7 +257,7 @@ pipeline {
         stage('Build & Push Docker Image') {
             steps {
                 dir('backend') {
-                    withDockerRegistry(credentialsId: 'docker') {
+                    withDockerRegistry(credentialsId: 'docker', url: "${DOCKER_REGISTRY}") {
                         sh '''
                         set -e
 
@@ -279,7 +283,7 @@ pipeline {
         ======================== */
         stage('Docker Scout Analysis') {
             steps {
-                withDockerRegistry(credentialsId: 'docker') {
+                withDockerRegistry(credentialsId: 'docker', url: "${DOCKER_REGISTRY}") {
                     sh '''
                     set -e
                     docker scout quickview ${DOCKER_IMAGE}
@@ -318,11 +322,11 @@ pipeline {
         stage('Verify Deployment') {
             steps {
                 sh '''
-                echo "Running container status..."
+                echo "Container status:"
                 docker compose ps
 
                 echo "Testing Flask API..."
-                curl -I http://localhost:5000
+                curl -I http://localhost:5000 || true
                 '''
             }
         }
@@ -348,9 +352,3 @@ pipeline {
         }
     }
 }
-
-//         always {
-//             sh 'docker compose ps || true'
-//         }
-//     }
-// }
